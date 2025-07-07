@@ -1222,8 +1222,14 @@ uint32_t lv_gltf_view_render(lv_opengl_shader_cache_t * shaders, lv_gltf_view_t 
 
     // To-do: check if the override actually affects the transform and that the affected object is visible in the scene
     if(gltf_data->overrides->size() > 0) {
-        //std::cout << "OVERRIDES TRIGGER WINDOW MOTION\n";
-        _motionDirty = true;
+        //bool _motion_was_dirty = _motionDirty;
+        for (size_t ii = 0; ii < gltf_data->all_override_count; ++ii) {
+            if ((*gltf_data->all_overrides)[ii].dirty) {
+                _motionDirty = true;
+                lv_gltf_data_clean_override(&(*gltf_data->all_overrides)[ii]);
+            }
+        }
+        //if (_motionDirty && (_motion_was_dirty == false)) { std::cout << "OVERRIDES TRIGGER WINDOW MOTION\n"; }
     }
 
     //if (lv_gltf_compare_viewer_desc(view_desc, &(gltf_data->_lastViewDesc))) {

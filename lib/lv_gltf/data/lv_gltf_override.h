@@ -34,8 +34,48 @@ struct lv_gltf_override_struct {
     float data3;
     float data4;
     bool read_only;
+    bool dirty;
     struct lv_gltf_override_struct * next_override; // Pointer to the next override
 } ;
+
+/**
+ * @brief Change the value in data channel 1 of a given override.
+ *
+ * @param override Pointer to the lv_gltf_override_t to change the data channel 1 value of.
+ * @param new_value The new value.
+ */
+void lv_gltf_data_set_override_data1(lv_gltf_override_t * override, float new_value);
+
+/**
+ * @brief Change the value in data channel 2 of a given override.
+ *
+ * @param override Pointer to the lv_gltf_override_t to change the data channel 2 value of.
+ * @param new_value The new value.
+ */
+void lv_gltf_data_set_override_data2(lv_gltf_override_t * override, float new_value);
+
+/**
+ * @brief Change the value in data channel 3 of a given override.
+ *
+ * @param override Pointer to the lv_gltf_override_t to change the data channel 3 value of.
+ * @param new_value The new value.
+ */
+void lv_gltf_data_set_override_data3(lv_gltf_override_t * override, float new_value);
+
+/**
+ * @brief Change the value in data channel 4 of a given override.
+ *
+ * @param override Pointer to the lv_gltf_override_t to change the data channel 4 value of.
+ * @param new_value The new value.
+ */
+void lv_gltf_data_set_override_data4(lv_gltf_override_t * override, float new_value);
+
+/**
+ * @brief Reset the dirty flag for a given override.
+ *
+ * @param override Pointer to the lv_gltf_override_t to reset the dirty flag for.
+ */
+void lv_gltf_data_clean_override(lv_gltf_override_t * override);
 
 /**
  * @brief Add an override to a GLTF data object by node index.

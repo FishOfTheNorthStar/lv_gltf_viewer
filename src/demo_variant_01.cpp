@@ -141,9 +141,8 @@ void set_rhombo_height(float new_height) {
 
     new_height += 1.8f;
 
-    ov_top->data2 = new_height / 2.f;
-    ov_bottom->data2 = -new_height / 2.f;
-
+    lv_gltf_data_set_override_data2(ov_top, new_height / 2.f);
+    lv_gltf_data_set_override_data2(ov_bottom, -new_height / 2.f);
     
     lv_gltf_view_recache_all_transforms(demo_gltfview, demo_gltfdata);
     //    for (uint32_t i = 0; i < NUM_QUAD_CORNERS_PER_HALF; i++) printf("Top Corner #%d World_Pos = %.2f, %.2f, %.2f\n", (i+1), ovro_top_quad_corners_pos[i]->data1, ovro_top_quad_corners_pos[i]->data2, ovro_top_quad_corners_pos[i]->data3);
@@ -158,9 +157,12 @@ void set_rhombo_height(float new_height) {
     const float base_scale = 1.f;//inv_tri_spacing_scale;
     const float radius_scale =  1.f;//inv_tri_spacing_scale;
     for (int i = 0; i < NUM_PIPES_PER_AXIS; i++) {
-        ov_vpipes[i]->data1 = radius_scale;
-        ov_vpipes[i]->data2 = base_scale * pipe_length;
-        ov_vpipes[i]->data3 = radius_scale;
+        lv_gltf_data_set_override_data1(ov_vpipes[i], radius_scale);
+        lv_gltf_data_set_override_data2(ov_vpipes[i], base_scale * pipe_length);
+        lv_gltf_data_set_override_data3(ov_vpipes[i], radius_scale);
+        //ov_vpipes[i]->data1 = radius_scale;
+        //ov_vpipes[i]->data2 = base_scale * pipe_length;
+        //ov_vpipes[i]->data3 = radius_scale;
     }
 
 }
@@ -171,15 +173,15 @@ void set_rhombo_width(float new_width) {
     new_width += 1.8f;
 
     float rside = new_width / 2.f;
-    ov_bottom_tri_corners_pos[1]->data1 = 
-    ov_bottom_tri_corners_pos[3]->data1 = 
-    ov_top_tri_corners_pos[1]->data1 = 
-    ov_top_tri_corners_pos[3]->data1 = rside;
+    lv_gltf_data_set_override_data1(ov_bottom_tri_corners_pos[1], rside);
+    lv_gltf_data_set_override_data1(ov_bottom_tri_corners_pos[3], rside);
+    lv_gltf_data_set_override_data1(ov_top_tri_corners_pos[1], rside);
+    lv_gltf_data_set_override_data1(ov_top_tri_corners_pos[3], rside);
 
-    ov_bottom_tri_corners_pos[0]->data1 = 
-    ov_bottom_tri_corners_pos[2]->data1 = 
-    ov_top_tri_corners_pos[0]->data1 = 
-    ov_top_tri_corners_pos[2]->data1 = -rside;
+    lv_gltf_data_set_override_data1(ov_bottom_tri_corners_pos[0], -rside);
+    lv_gltf_data_set_override_data1(ov_bottom_tri_corners_pos[2], -rside);
+    lv_gltf_data_set_override_data1(ov_top_tri_corners_pos[0], -rside);
+    lv_gltf_data_set_override_data1(ov_top_tri_corners_pos[2], -rside);
 
     lv_gltf_view_recache_all_transforms(demo_gltfview, demo_gltfdata);
     //    for (uint32_t i = 0; i < NUM_QUAD_CORNERS_PER_HALF; i++) printf("Top Corner #%d World_Pos = %.2f, %.2f, %.2f\n", (i+1), ovro_top_quad_corners_pos[i]->data1, ovro_top_quad_corners_pos[i]->data2, ovro_top_quad_corners_pos[i]->data3);
@@ -194,9 +196,9 @@ void set_rhombo_width(float new_width) {
     const float base_scale = 1.f;//inv_tri_spacing_scale;
     const float radius_scale =  1.f;//inv_tri_spacing_scale;
     for (int i = 0; i < NUM_PIPES_PER_AXIS; i++) {
-        ov_wpipes[i]->data1 = radius_scale;
-        ov_wpipes[i]->data2 = base_scale * pipe_length;
-        ov_wpipes[i]->data3 = radius_scale;
+        lv_gltf_data_set_override_data1(ov_wpipes[i], radius_scale);
+        lv_gltf_data_set_override_data2(ov_wpipes[i], base_scale * pipe_length);
+        lv_gltf_data_set_override_data3(ov_wpipes[i], radius_scale);
     }
 }
 
@@ -206,15 +208,15 @@ void set_rhombo_depth(float new_depth) {
     new_depth += 1.8f;
 
     float fside = new_depth / 2.f;
-    ov_bottom_tri_corners_pos[2]->data3 = 
-    ov_bottom_tri_corners_pos[3]->data3 = 
-    ov_top_tri_corners_pos[2]->data3 = 
-    ov_top_tri_corners_pos[3]->data3 = fside;
+    lv_gltf_data_set_override_data3(ov_bottom_tri_corners_pos[2], fside);
+    lv_gltf_data_set_override_data3(ov_bottom_tri_corners_pos[3], fside);
+    lv_gltf_data_set_override_data3(ov_top_tri_corners_pos[2], fside);
+    lv_gltf_data_set_override_data3(ov_top_tri_corners_pos[3], fside);
 
-    ov_bottom_tri_corners_pos[0]->data3 = 
-    ov_bottom_tri_corners_pos[1]->data3 = 
-    ov_top_tri_corners_pos[0]->data3 = 
-    ov_top_tri_corners_pos[1]->data3 = -fside;
+    lv_gltf_data_set_override_data3(ov_bottom_tri_corners_pos[0], -fside);
+    lv_gltf_data_set_override_data3(ov_bottom_tri_corners_pos[1], -fside);
+    lv_gltf_data_set_override_data3(ov_top_tri_corners_pos[0], -fside);
+    lv_gltf_data_set_override_data3(ov_top_tri_corners_pos[1], -fside);
 
     lv_gltf_view_recache_all_transforms(demo_gltfview, demo_gltfdata);
     //    for (uint32_t i = 0; i < NUM_QUAD_CORNERS_PER_HALF; i++) printf("Top Corner #%d World_Pos = %.2f, %.2f, %.2f\n", (i+1), ovro_top_quad_corners_pos[i]->data1, ovro_top_quad_corners_pos[i]->data2, ovro_top_quad_corners_pos[i]->data3);
@@ -228,9 +230,9 @@ void set_rhombo_depth(float new_depth) {
     const float base_scale = 1.f;//inv_tri_spacing_scale;
     const float radius_scale =  1.f;//inv_tri_spacing_scale;
     for (int i = 0; i < NUM_PIPES_PER_AXIS; i++) {
-        ov_dpipes[i]->data1 = radius_scale;
-        ov_dpipes[i]->data2 = base_scale * pipe_length;
-        ov_dpipes[i]->data3 = radius_scale;
+        lv_gltf_data_set_override_data1(ov_dpipes[i], radius_scale);
+        lv_gltf_data_set_override_data2(ov_dpipes[i], base_scale * pipe_length);
+        lv_gltf_data_set_override_data3(ov_dpipes[i], radius_scale);
     }
 
 }
@@ -248,33 +250,34 @@ void set_rhombo_tri_scale(float new_tri_scale) {
     tri_spacing_scale = new_tri_scale;
     inv_tri_spacing_scale = 1.f / new_tri_scale;
     for (uint32_t i = 0; i < NUM_TRI_CORNERS_PER_HALF; i++) {
-        ov_top_tri_corners_scale[i]->data1 =
-        ov_top_tri_corners_scale[i]->data2 =
-        ov_top_tri_corners_scale[i]->data3 =
-        ov_bottom_tri_corners_scale[i]->data1 =
-        ov_bottom_tri_corners_scale[i]->data2 =
-        ov_bottom_tri_corners_scale[i]->data3 = tri_spacing_scale;
+        lv_gltf_data_set_override_data1(ov_top_tri_corners_scale[i], tri_spacing_scale);
+        lv_gltf_data_set_override_data2(ov_top_tri_corners_scale[i], tri_spacing_scale);
+        lv_gltf_data_set_override_data3(ov_top_tri_corners_scale[i], tri_spacing_scale);
+        lv_gltf_data_set_override_data1(ov_bottom_tri_corners_scale[i], tri_spacing_scale);
+        lv_gltf_data_set_override_data2(ov_bottom_tri_corners_scale[i], tri_spacing_scale);
+        lv_gltf_data_set_override_data3(ov_bottom_tri_corners_scale[i], tri_spacing_scale);
 
-        ov_top_tri_corners_visible_scale[i]->data1 =
-        ov_top_tri_corners_visible_scale[i]->data2 =
-        ov_top_tri_corners_visible_scale[i]->data3 =
-        ov_bottom_tri_corners_visible_scale[i]->data1 =
-        ov_bottom_tri_corners_visible_scale[i]->data2 =
-        ov_bottom_tri_corners_visible_scale[i]->data3 = inv_tri_spacing_scale;
+        lv_gltf_data_set_override_data1(ov_top_tri_corners_visible_scale[i], inv_tri_spacing_scale);
+        lv_gltf_data_set_override_data2(ov_top_tri_corners_visible_scale[i], inv_tri_spacing_scale);
+        lv_gltf_data_set_override_data3(ov_top_tri_corners_visible_scale[i], inv_tri_spacing_scale);
+        lv_gltf_data_set_override_data1(ov_bottom_tri_corners_visible_scale[i], inv_tri_spacing_scale);
+        lv_gltf_data_set_override_data2(ov_bottom_tri_corners_visible_scale[i], inv_tri_spacing_scale);
+        lv_gltf_data_set_override_data3(ov_bottom_tri_corners_visible_scale[i], inv_tri_spacing_scale);
 
     }
 
     for (uint32_t i = 0; i < NUM_QUAD_CORNERS_PER_HALF; i++) {
-        ov_top_quad_corners_scale[i]->data1 =
-        ov_top_quad_corners_scale[i]->data2 =
-        ov_top_quad_corners_scale[i]->data3 =
-        ov_bottom_quad_corners_scale[i]->data1 =
-        ov_bottom_quad_corners_scale[i]->data2 =
-        ov_bottom_quad_corners_scale[i]->data3 = inv_tri_spacing_scale;
+        lv_gltf_data_set_override_data1(ov_top_quad_corners_scale[i], inv_tri_spacing_scale);
+        lv_gltf_data_set_override_data2(ov_top_quad_corners_scale[i], inv_tri_spacing_scale);
+        lv_gltf_data_set_override_data3(ov_top_quad_corners_scale[i], inv_tri_spacing_scale);
+        lv_gltf_data_set_override_data1(ov_bottom_quad_corners_scale[i], inv_tri_spacing_scale);
+        lv_gltf_data_set_override_data2(ov_bottom_quad_corners_scale[i], inv_tri_spacing_scale);
+        lv_gltf_data_set_override_data3(ov_bottom_quad_corners_scale[i], inv_tri_spacing_scale);
     }
 
     tri_pipe_length = tri_spacing_scale * 0.5f - 0.25f;
-    for (uint32_t i = 0; i < NUM_TRI_PIPES_TOTAL; i++) ov_all_tri_pipes[i]->data2 = tri_pipe_length;
+    for (uint32_t i = 0; i < NUM_TRI_PIPES_TOTAL; i++)
+        lv_gltf_data_set_override_data2(ov_all_tri_pipes[i], tri_pipe_length);
 
     // After changing the tri-scale, the height/width/depth need updated as well
     set_rhombo_height(rhombo_height);
@@ -440,7 +443,7 @@ static void ov_triscale_slider_event_cb(lv_event_t * e)
     float normval = ((float)lv_slider_get_value(slider) / 10000.0f) ;
     //rhombo_tri_scale = (normval * (MAX_VAL - MIN_VAL)) + MIN_VAL;
     set_rhombo_tri_scale((normval * (MAX_VAL - MIN_VAL)) + MIN_VAL);
-    cancel_dragnav_frames = 30;
+    cancel_dragnav_frames = 1;
 }
 
 static void ov_height_slider_event_cb(lv_event_t * e)
@@ -450,7 +453,7 @@ static void ov_height_slider_event_cb(lv_event_t * e)
     lv_obj_t * slider = lv_event_get_target_obj(e);
     float normval = ((float)lv_slider_get_value(slider) / 10000.0f) ;
     set_rhombo_height((normval * (MAX_VAL - MIN_VAL)) + MIN_VAL);
-    cancel_dragnav_frames = 30;
+    cancel_dragnav_frames = 1;
 }
 
 static void ov_width_slider_event_cb(lv_event_t * e)
@@ -460,7 +463,7 @@ static void ov_width_slider_event_cb(lv_event_t * e)
     lv_obj_t * slider = lv_event_get_target_obj(e);
     float normval = ((float)lv_slider_get_value(slider) / 10000.0f) ;
     set_rhombo_width((normval * (MAX_VAL - MIN_VAL)) + MIN_VAL);
-    cancel_dragnav_frames = 30;
+    cancel_dragnav_frames = 1;
 }
 
 static void ov_depth_slider_event_cb(lv_event_t * e)
@@ -470,7 +473,7 @@ static void ov_depth_slider_event_cb(lv_event_t * e)
     lv_obj_t * slider = lv_event_get_target_obj(e);
     float normval = ((float)lv_slider_get_value(slider) / 10000.0f) ;
     set_rhombo_depth((normval * (MAX_VAL - MIN_VAL)) + MIN_VAL);
-    cancel_dragnav_frames = 30;
+    cancel_dragnav_frames = 1;
 }
 
 void make_rhombo_sliders(lv_obj_t * _cont) {
@@ -583,18 +586,18 @@ void reload(char * _filename, const char * _hdr_filename) {
         if (!show_grid) {
             tscale = 0.f;
         }
-        ov_ground_scale->data1 = tscale;
-        ov_ground_scale->data2 = tscale;
-        ov_ground_scale->data3 = tscale;
+        lv_gltf_data_set_override_data1(ov_ground_scale, tscale);
+        lv_gltf_data_set_override_data2(ov_ground_scale, tscale);
+        lv_gltf_data_set_override_data3(ov_ground_scale, tscale);
 
         tscale = unitscale / 8.f;
         ov_cursor_scale = lv_gltf_data_override_add_by_id(system_gltfdata, "/cursor/visible", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
         #ifndef EXPERIMENTAL_GROUNDCAST
         tscale = 0.f;
         #endif
-        ov_cursor_scale->data1 = tscale;
-        ov_cursor_scale->data2 = tscale;
-        ov_cursor_scale->data3 = tscale;
+        lv_gltf_data_set_override_data1(ov_cursor_scale, tscale);
+        lv_gltf_data_set_override_data2(ov_cursor_scale, tscale);
+        lv_gltf_data_set_override_data3(ov_cursor_scale, tscale);
     }
     lv_obj_add_flag(grp_loading, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(gltfview_3dtex, LV_OBJ_FLAG_HIDDEN);
@@ -786,9 +789,10 @@ int main(int argc, char *argv[]) {
                 if (mouse_in_window) {
                     bool _res = lv_gltf_view_raycast_ground_position(demo_gltfview, _mousepoint.x - INNER_BG_CROP_LEFT, _mousepoint.y - INNER_BG_CROP_TOP, ui_get_window_width() - (INNER_BG_CROP_LEFT + INNER_BG_CROP_RIGHT), ui_get_window_height() - (INNER_BG_CROP_TOP + INNER_BG_CROP_BOTTOM),  0.0, _groundpos);
                     if (_res && (ov_cursor != NULL)) {
-                        ov_cursor->data1 = _groundpos[0];
-                        ov_cursor->data2 = _groundpos[1];
-                        ov_cursor->data3 = _groundpos[2];
+                        
+                        lv_gltf_data_set_override_data1(ov_cursor, _groundpos[0]);
+                        lv_gltf_data_set_override_data2(ov_cursor, _groundpos[1]);
+                        lv_gltf_data_set_override_data3(ov_cursor, _groundpos[2]);
                     }
                 }
 
