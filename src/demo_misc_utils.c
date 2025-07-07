@@ -52,6 +52,7 @@ void setup_shadercache(const char * hdr_filepath, int degrees_x10)
 
 void demo_set_overrides(void)
 {
+    /*
     ov_boom = lv_gltf_data_override_add_by_id(demo_gltfdata,     "/root_base/base_platform/cab_pivot/proximal_armlink",
                                               OP_ROTATION, OMC_CHAN2);
     ov_stick = lv_gltf_data_override_add_by_id(demo_gltfdata,
@@ -61,10 +62,10 @@ void demo_set_overrides(void)
                                                 OMC_CHAN2);  // Not currently valid even with the right model loaded
     ov_swing = lv_gltf_data_override_add_by_id(demo_gltfdata,    "/root_base/base_platform/cab_pivot", OP_ROTATION,
                                                OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    */
     if(needs_system_gltfdata) ov_cursor = lv_gltf_data_override_add_by_id(system_gltfdata, "/cursor", OP_POSITION,
                                                                               OMC_CHAN1 | OMC_CHAN2  | OMC_CHAN3);
-    if((ov_boom != NULL) && (ov_stick != NULL) && (ov_swing != NULL) &&
-       (ov_cursor != NULL)) demo_ui_add_override_controls(tab_pages[TAB_VIEW]);
+    if((ov_cursor != NULL)) demo_ui_add_override_controls(tab_pages[TAB_VIEW]);
 }
 
 void demo_refocus(lv_gltf_view_t * gltfview, bool first_call)

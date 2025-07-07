@@ -531,6 +531,14 @@ bool lv_gltf_view_raycast_ground_position(lv_gltf_view_t * view, int32_t mouse_x
                                           int32_t win_height, double ground_height, float * out_pos);
 
 /**
+ * @brief Force recache of all node transforms immediately (generally it is not necessary to call this directly).
+ *
+ * @param view Pointer to the lv_gltf_view.
+ * @param gltf_data Pointer to the GLTF data to render.
+ */
+void lv_gltf_view_recache_all_transforms(lv_gltf_view_t * view, lv_gltf_data_t * gltf_data);
+
+/**
  * @brief Render the GLTF model using the specified shaders and settings.
  *
  * @param shaders Pointer to the OpenGL shader cache.

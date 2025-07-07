@@ -4,11 +4,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+bool requires_file_name = true;
+
 void cli_print_usage(void)
 {
-    printf("Usage: gltf_view [path_to_gltf_file] (one or more options from below)\n");//[-in input_file] [-env hdr_file] [-aa ANTIALIAS_MODE] [-bg BACKGROUND_MODE]\n");
+    if (requires_file_name) { 
+        printf("Usage: gltf_view [path_to_gltf_file] (one or more options from below)\n");//[-in input_file] [-env hdr_file] [-aa ANTIALIAS_MODE] [-bg BACKGROUND_MODE]\n");
+    } else {
+        printf("Usage: gltf_view (one or more options from below)\n");//[-in input_file] [-env hdr_file] [-aa ANTIALIAS_MODE] [-bg BACKGROUND_MODE]\n");
+    }
     printf("Options:\n");
-    printf("  -in <input_file>         Specify the input file path.\n");
+    if (requires_file_name) { printf("  -in <input_file>         Specify the input file path.\n"); }
     printf("  -env <hdr_file>          Specify the environmental lighting / reflections HDR file path.\n");
     printf("  -env <int value>         Specify the environmental lighting / reflections HDR preset number.\n");
     printf("                            [1] = Footprint Court  [2] = Helipad       [3] = Field            \n");
@@ -65,6 +71,7 @@ bool demo_cli_apply_commandline_options(lv_gltf_view_t * viewer, char * gltfFile
     lv_gltf_view_set_bgcolor_RGBA(viewer, 230, 230, 230, 0);
 
     bool gotFilenameInput = false;
+    if (requires_file_name == false) gotFilenameInput = true;
     bool passedParamChecks = true;
 
     //desktop_mode = false;
@@ -79,18 +86,19 @@ bool demo_cli_apply_commandline_options(lv_gltf_view_t * viewer, char * gltfFile
     else {
         // Get the glTF file path (first argument)
         int _first_param = 1;
-        if(argc > 1) {
-            if(argv[1][0] != '-') {
-                strncpy(gltfFile, argv[1], MAX_PATH_LENGTH - 1);
-                gltfFile[MAX_PATH_LENGTH - 1] = '\0'; // Ensure null-termination
-                _first_param = 2;
-                gotFilenameInput = true;
+        if (requires_file_name ) {
+            if(argc > 1) {
+                if(argv[1][0] != '-') {
+                    strncpy(gltfFile, argv[1], MAX_PATH_LENGTH - 1);
+                    gltfFile[MAX_PATH_LENGTH - 1] = '\0'; // Ensure null-termination
+                    _first_param = 2;
+                    gotFilenameInput = true;
+                }
             }
         }
-
         // Parse additional arguments
         for(int i = _first_param; i < argc; i++) {
-            if(strcmp(argv[i], "-in") == 0 && (i + 1) < argc) {
+            if((requires_file_name) && strcmp(argv[i], "-in") == 0 && (i + 1) < argc) {
                 strncpy(gltfFile, argv[i + 1], MAX_PATH_LENGTH - 1);
                 gltfFile[MAX_PATH_LENGTH - 1] = '\0'; // Ensure null-termination
                 gotFilenameInput = true;

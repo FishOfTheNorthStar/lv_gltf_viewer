@@ -8,6 +8,7 @@ float goal_distance;
 float goal_focal_x;
 float goal_focal_y;
 float goal_focal_z;
+uint32_t cancel_dragnav_frames = 0;
 
 void nav_turn(int mouse_x, int mouse_y, int last_mouse_x, int last_mouse_y)
 {
@@ -97,6 +98,10 @@ void nav_zoom(int mouse_y, int last_mouse_y)
 void demo_nav_process_drag(float movement_power, uint32_t mouse_state_ex, int mouse_x, int mouse_y, int last_mouse_x,
                            int last_mouse_y)
 {
+    if (cancel_dragnav_frames > 0) {
+        cancel_dragnav_frames -= 1;
+        return;
+    }
     if(mouse_state_ex == LV_INDEV_STATE_EX_MOUSE_LEFT)         nav_turn(mouse_x, mouse_y, last_mouse_x, last_mouse_y);
     else if(mouse_state_ex == LV_INDEV_STATE_EX_MOUSE_RIGHT)   nav_drag_xz(movement_power, mouse_x, mouse_y, last_mouse_x,
                                                                                last_mouse_y);

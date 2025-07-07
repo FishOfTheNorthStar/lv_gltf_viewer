@@ -106,6 +106,20 @@ add_executable(
   src/lvgl_icon_40px_ARGB888.c
   src/sprites1_32x32x7.c)
 
+  # Main executable
+add_executable(
+  demo_rhombo_overrides
+  src/demo_variant_01.cpp
+  src/demo_ui.c
+  src/demo_cli.c
+  src/demo_nav.c
+  src/demo_os_integrate.c
+  src/demo_file_load_dialog.c
+  src/demo_misc_utils.c
+  src/mouse_cursor_icon.c
+  src/lvgl_icon_40px_ARGB888.c
+  src/sprites1_32x32x7.c)
+
 add_executable(demo src/simple_demo.c)
 
 # Build type definitions
@@ -124,15 +138,31 @@ option(ENABLE_ASAN "Enable AddressSanitizer in Debug builds" OFF)
 if(ENABLE_ASAN AND CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_compile_options(gltf_view PRIVATE -fsanitize=address)
   target_link_options(gltf_view PRIVATE -fsanitize=address)
+  target_compile_options(demo_rhombo_overrides PRIVATE -fsanitize=address)
+  target_link_options(demo_rhombo_overrides PRIVATE -fsanitize=address)
+  
 endif()
 
 # Additional optimization for MinSizeRel
 if(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
   target_link_options(gltf_view PRIVATE -Wl,--gc-sections)
+  target_link_options(demo_rhombo_overrides PRIVATE -Wl,--gc-sections)
 endif()
 
 target_link_libraries(
   gltf_view
+  PRIVATE lvgl
+          lvgl_gltfview
+          lvgl_gltfdata
+          m
+          OpenGL::GL
+          GLEW::GLEW
+          glfw
+          webp
+          fastgltf)
+
+target_link_libraries(
+  demo_rhombo_overrides
   PRIVATE lvgl
           lvgl_gltfview
           lvgl_gltfdata
@@ -157,8 +187,15 @@ target_link_libraries(
 
 target_include_directories(
   gltf_view PRIVATE ./lib/lv_gltf ./lib/lv_gltf/data/deps lvgl lvgl/src)
-
+  
+target_compile_definitions(gltf_view PRIVATE ENABLE_DESKTOP_MODE)
 set_target_properties(gltf_view PROPERTIES COMPILE_DEFINITIONS
+                                           "${LVGL_COMPILER_DEFINES}")
+
+target_include_directories(
+  demo_rhombo_overrides PRIVATE ./lib/lv_gltf ./lib/lv_gltf/data/deps lvgl lvgl/src)
+
+set_target_properties(demo_rhombo_overrides PROPERTIES COMPILE_DEFINITIONS
                                            "${LVGL_COMPILER_DEFINES}")
 
 set_target_properties(demo PROPERTIES COMPILE_DEFINITIONS

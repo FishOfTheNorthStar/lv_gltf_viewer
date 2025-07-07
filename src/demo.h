@@ -16,8 +16,7 @@ extern "C" {
 #include <sys/time.h>
 #include <poll.h>
 
-#define ENABLE_DESKTOP_MODE
-#define EXPERIMENTAL_GROUNDCAST
+
 
 #ifdef ENABLE_DESKTOP_MODE
 #include <pthread.h>
@@ -91,6 +90,7 @@ extern bool enable_intro_zoom;
 extern float spin_counter_degrees;
 extern bool reapply_layout_flag;
 extern uint32_t cycle_frames;
+extern uint32_t cancel_dragnav_frames;
 
 extern lv_obj_t * last_dragged_control;
 extern lv_display_t * display_texture;

@@ -5,7 +5,7 @@
 #include <fastgltf/types.hpp>
 #include <algorithm>
 
-#define MAX_OVERRIDES 10
+#define MAX_OVERRIDES 1024
 #define _RET return
 
 

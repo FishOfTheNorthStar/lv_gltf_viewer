@@ -30,6 +30,7 @@ void demo_os_integrate_signal_window_close(void)
     glfwSetWindowShouldClose(glfw_window, GLFW_TRUE);
 }
 
+#ifdef ENABLE_DESKTOP_MODE
 int os_integrate_increase_ramdrive_size(unsigned long increase_byte_count)
 {
     unsigned long increase_megabytes = increase_byte_count / (1024 * 1024);
@@ -82,7 +83,7 @@ int os_integrate_check_drive_space(int32_t current_frame_num)  //const char *pat
     }
     return 0; // Success
 }
-
+#endif
 void os_integrate_filedrop_callback(GLFWwindow * _window, int count, const char ** paths)
 {
     LV_UNUSED(_window);

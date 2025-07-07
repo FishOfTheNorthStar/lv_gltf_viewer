@@ -1,3 +1,6 @@
+//#define ENABLE_DESKTOP_MODE
+//#define EXPERIMENTAL_GROUNDCAST
+
 #include "demo.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,6 +84,23 @@ void main() {
     if (edgeFactor < 0.01) g_finalColor = vec4(0.0, 1.0, 0.0, 1.0);
 }
 )";
+
+void demo_set_overrides_with_excavator_test(void)
+{
+    ov_boom = lv_gltf_data_override_add_by_id(demo_gltfdata,     "/root_base/base_platform/cab_pivot/proximal_armlink",
+                                              OP_ROTATION, OMC_CHAN2);
+    ov_stick = lv_gltf_data_override_add_by_id(demo_gltfdata,
+                                               "/root_base/base_platform/cab_pivot/proximal_armlink/distal_armlink", OP_ROTATION, OMC_CHAN2);
+    ov_bucket = lv_gltf_data_override_add_by_id(demo_gltfdata,
+                                                "/root_base/base_platform/cab_pivot/proximal_armlink/distal_armlink/bucket", OP_ROTATION,
+                                                OMC_CHAN2);  // Not currently valid even with the right model loaded
+    ov_swing = lv_gltf_data_override_add_by_id(demo_gltfdata,    "/root_base/base_platform/cab_pivot", OP_ROTATION,
+                                               OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    if(needs_system_gltfdata) ov_cursor = lv_gltf_data_override_add_by_id(system_gltfdata, "/cursor", OP_POSITION,
+                                                                              OMC_CHAN1 | OMC_CHAN2  | OMC_CHAN3);
+    if((ov_boom != NULL) && (ov_stick != NULL) && (ov_swing != NULL) &&
+       (ov_cursor != NULL)) demo_ui_add_override_controls(tab_pages[TAB_VIEW]);
+}
 
 void reload(char * _filename, const char * _hdr_filename) {
     printf("Loading %s...\n", _filename);
@@ -241,7 +261,7 @@ int main(int argc, char *argv[]) {
         if (startMaximized) glfwMaximizeWindow(glfw_window);
 
         reload(gltfFilePath, hdrFilePath);
-        demo_set_overrides();
+        demo_set_overrides_with_excavator_test();
 
         /*
                 // Example of how to convert a GLTF file texture into an lv_image_dsc_t, for use with lv_image_t's
