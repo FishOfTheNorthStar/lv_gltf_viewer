@@ -11,6 +11,60 @@
 #include "lib/lv_gltf/view/lv_gltf_view_internal.hpp"
 
 #define SYSTEM_ASSETS_FILENAME  "./gltfs/support_assets.glb"
+#define MAX_PIPE_SEGMENTS 48 // Total maximum number of pipe segments
+
+// Enum for pipe segment types
+typedef enum {
+    COFFEE_STRAW_1,
+    COFFEE_STRAW_2,
+    DRINKING_STRAW,
+    FIBERGLASS_ROD,
+} pipe_stock_type;
+static const char* pipe_stock_type_labels[5] = {"COFFEE_STRAW_1", "COFFEE_STRAW_2", "DRINKING_STRAW", "FIBERGLASS_ROD"};
+
+typedef struct {
+    pipe_stock_type pipe_type;
+    float pipe_radius;
+    char pipe_label[64];
+    float max_axis_length;
+    float max_tri_scale;
+    float pipe_stock_length;
+} pipe_type_desc;
+
+static const pipe_type_desc pipe_types[] = {
+    {COFFEE_STRAW_1, 0.010416f, "Coffee Stirrer Straw (1/8\")", 0.5f, 0.5f, 0.5f},
+    {DRINKING_STRAW, 0.019166f, "Drinking Straw #1 (0.23\")", 0.833333f, 1.0f, 0.833333f},
+    {FIBERGLASS_ROD, 0.0208333f, "Fiberglass Rod (1/4\")", 3.95833f, 2.5f, 3.95833f}
+};
+
+// Enum for pipe segment types
+typedef enum {
+    TETRA_SEGMENT,
+    HEIGHT_SEGMENT,
+    WIDTH_SEGMENT,
+    DEPTH_SEGMENT,
+    FLAT_SIDE_CORNER
+} pipe_segment_type;
+static const char* pipe_type_labels[5] = {"Tetroid", "Height", "Width", "Depth", "Flat Side Corner"};
+
+typedef struct {
+    float length;
+    pipe_segment_type type; // Added type property to the struct
+} pipe_segment;
+
+typedef struct {
+    float total_length;
+    float remaining_length;
+    pipe_segment allocated_segments[MAX_PIPE_SEGMENTS]; // Fixed-size array for allocated segments
+    int allocated_count;
+} pipe_stock_unit;
+
+pipe_segment needed_segments[MAX_PIPE_SEGMENTS]; // Fixed-size array for required pipe segments
+int needed_count = 0; // Count of required segments
+
+pipe_stock_unit stock_units[MAX_PIPE_SEGMENTS]; // Fixed-size array for stock units
+int stock_count = 0; // Count of stock units
+
 
 float TIME_SCALE = 1.0f;
 unsigned int _current_tab = 0;
@@ -33,13 +87,13 @@ bool stub_mode = false;
 uint32_t cycle_frames = 1;
 extern bool requires_file_name;
 
-float tri_spacing_scale = 4.0f;
+float tri_spacing_scale = 4.75f;
 float inv_tri_spacing_scale = 1.f / tri_spacing_scale;
 
-float rhombo_height = 4.f;
-float rhombo_width = 4.f;
-float rhombo_depth = 4.f;
-float rhombo_tri_scale = 2.f;
+float rhombo_height = 0.f;
+float rhombo_width = 0.f;
+float rhombo_depth = 0.f;
+float rhombo_tri_scale = -1.f;
 
 float tri_pipe_length  = -1.f;
 float height_pipe_length = -1.f;
@@ -49,6 +103,9 @@ float depth_pipe_length = -1.f;
 float rhombo_total_height = -1.f;
 float rhombo_total_width = -1.f;
 float rhombo_total_depth = -1.f;
+float rhombo_pipe_width = 0.5f;// 4"  | 0.0206666;  // 1/4"
+float pipe_radius_scale =  1.f;
+
 
 lv_indev_t * mouse;
 lv_glfw_window_t * window;
@@ -71,6 +128,7 @@ lv_gltf_override_t * ov_bucket = NULL;
 lv_gltf_override_t * ov_swing = NULL;
 
 lv_obj_t * rhombo_summary;
+lv_obj_t * pipe_type_dropdown;
 
 const uint32_t NUM_PIPES_PER_AXIS = 8;
 const uint32_t NUM_PIPES_PER_TRI = 3;
@@ -82,6 +140,8 @@ lv_gltf_override_t * ov_vpipes[NUM_PIPES_PER_AXIS] = {NULL, NULL, NULL, NULL, NU
 lv_gltf_override_t * ov_wpipes[NUM_PIPES_PER_AXIS] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 lv_gltf_override_t * ov_dpipes[NUM_PIPES_PER_AXIS] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 
+lv_gltf_override_t * ov_root_rot = NULL;
+lv_gltf_override_t * ov_root_pos = NULL;
 lv_gltf_override_t * ov_top = NULL;
 lv_gltf_override_t * ov_bottom = NULL;
 lv_gltf_override_t * ov_top_tri_corners_pos[NUM_TRI_CORNERS_PER_HALF] = {NULL, NULL, NULL, NULL};
@@ -98,13 +158,122 @@ lv_gltf_override_t * ov_bottom_quad_corners_scale[NUM_QUAD_CORNERS_PER_HALF] = {
 
 lv_gltf_override_t * ovro_top_quad_corners_pos[NUM_QUAD_CORNERS_PER_HALF] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 lv_gltf_override_t * ovro_bottom_quad_corners_pos[NUM_QUAD_CORNERS_PER_HALF] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+lv_gltf_override_t *  ovro_sample_tetroid_pipe_pos;
+lv_gltf_override_t *  ovro_sample_tetroid_top_pipe_mount_ref;
+lv_gltf_override_t *  ovro_sample_tetroid_top_pipe_ref;
 
 lv_gltf_override_t * ov_all_tri_pipes[NUM_TRI_PIPES_TOTAL] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 
-const float QUAD_PIPE_MARGIN = 0.31f * 2.f;
+const float QUAD_PIPE_MARGIN = 0.15f * 2.f;
+const float BASE_AXIS_SEPERATION = 1.5f;
 
+float axis_min_seperation = BASE_AXIS_SEPERATION;
+
+pipe_stock_type rhombo_pipe_type = DRINKING_STRAW;
+
+
+// Function to clear and reset internal buffers
+void reset_buffers() {
+    //printf ("Resetting cut solver buffers...");
+    needed_count = 0; // Reset the count of needed segments
+    stock_count = 0; // Reset the count of stock units
+
+    // Reset allocated counts for each stock unit
+    for (int i = 0; i < MAX_PIPE_SEGMENTS; i++) {
+        stock_units[i].allocated_count = 0;
+        stock_units[i].total_length = 0;
+        stock_units[i].remaining_length = 0;
+    }
+    //printf ("done\n");
+
+}
+
+
+// Function to add a new required pipe segment
+void add_new_segment(float length, pipe_segment_type type) {
+    if (needed_count < MAX_PIPE_SEGMENTS) {
+        needed_segments[needed_count].length = length;
+        needed_segments[needed_count].type = type; // Set the type
+        needed_count++;
+    } else {
+        fprintf(stderr, "Error: Maximum number of pipe segments exceeded.\n");
+    }
+}
+
+
+// Function to allocate segments to pipe stock units
+void solve() {
+    const float full_stock_length = 12.0f;
+
+    for (int i = 0; i < needed_count; i++) {
+        float segment_length = needed_segments[i].length;
+        int allocated = 0;
+
+        // Try to fit the segment into existing stock units
+        for (int j = 0; j < stock_count; j++) {
+            if (stock_units[j].remaining_length >= segment_length) {
+                // Allocate the segment to this stock unit
+                stock_units[j].allocated_segments[stock_units[j].allocated_count] = needed_segments[i];
+                stock_units[j].allocated_count++;
+                stock_units[j].remaining_length -= segment_length;
+                allocated = 1;
+                break; // Break out of the loop once allocated
+            }
+        }
+
+        // If not allocated, create a new stock unit
+        if (!allocated) {
+            if (stock_count < MAX_PIPE_SEGMENTS) {
+                // Initialize the new stock unit
+                stock_units[stock_count].total_length = full_stock_length; // Assuming full length for new stock
+                stock_units[stock_count].remaining_length = full_stock_length - segment_length;
+                stock_units[stock_count].allocated_segments[0] = needed_segments[i];
+                stock_units[stock_count].allocated_count = 1;
+                stock_count++;
+            } else {
+                fprintf(stderr, "Error: Maximum number of stock units exceeded.\n");
+            }
+        }
+    }
+}
+
+
+
+void add_all_required_pipes(void) {
+    // Reset buffers to start fresh
+    reset_buffers();
+
+    for (uint32_t i = 0; i < NUM_PIPES_PER_AXIS; ++i){
+        add_new_segment(height_pipe_length, HEIGHT_SEGMENT);
+        add_new_segment(width_pipe_length, WIDTH_SEGMENT);
+        add_new_segment(depth_pipe_length, DEPTH_SEGMENT);
+    }
+
+    for (uint32_t i = 0; i < NUM_TRI_PIPES_TOTAL; ++i){
+        add_new_segment(tri_pipe_length, TETRA_SEGMENT);
+    }
+
+    solve();
+    
+    /* Output the allocated stock units for verification
+    for (int i = 0; i < stock_count; i++) {
+        printf("Stock Unit %d: Total Length = %.2f, Remaining Length = %.2f, Allocated Segments = %d\n",
+               i + 1, stock_units[i].total_length, stock_units[i].remaining_length, stock_units[i].allocated_count);
+        for (int j = 0; j < stock_units[i].allocated_count; j++) {
+            printf("+->Seg %d: Length = %.2f, Type = %s\n", 
+                   j + 1, stock_units[i].allocated_segments[j].length, pipe_type_labels[(uint32_t)stock_units[i].allocated_segments[j].type]);
+        }
+    }
+    printf ("[Solve summary finished]\n"); */
+
+    // Clean up
+    //reset_buffers(); // Reset buffers before exiting
+
+}
 
 void update_rhombo_summary(void) {
+
+    add_all_required_pipes();
 
     float corner_width = (-ovro_top_quad_corners_pos[0]->data1) - (-ovro_top_quad_corners_pos[1]->data1);
     float rhombo_total_floorspace = rhombo_total_depth * rhombo_total_width;
@@ -116,18 +285,22 @@ void update_rhombo_summary(void) {
     total_pipe_length += depth_pipe_length * NUM_PIPES_PER_AXIS;
     char buffer[4096];
     lv_snprintf(buffer, 4095, R"(
+Pipe Diameter: 
+%.5f
+
 Dimensions:
-Width: %.2f
-Depth: %.2f
-Height: %.2f
-Floorspace: %.2f sqr
-Pipes:
-Tri pipe length = %.2f
-Height pipe length = %.2f
-Width pipe length = %.2f
-Depth pipe length = %.2f
-Total pipe length = %.2f
-)", rhombo_total_width, rhombo_total_depth, rhombo_total_height, rhombo_total_floorspace, tri_pipe_length, height_pipe_length, width_pipe_length, depth_pipe_length, total_pipe_length);
+->Width: %.2f
+->Depth: %.2f
+->Height: %.2f
+Max Floor: %.2f sqr
+
+Pipe Segments: %d
+->Tetroid: %.2f (x%d)
+->Height: %.2f (x%d)
+->Width: %.2f (x%d)
+->Depth: %.2f (x%d)
+Total: %.2f
+)", rhombo_pipe_width, rhombo_total_width, rhombo_total_depth, rhombo_total_height, rhombo_total_floorspace, MAX_PIPE_SEGMENTS, tri_pipe_length, NUM_TRI_PIPES_TOTAL, height_pipe_length, NUM_PIPES_PER_AXIS, width_pipe_length, NUM_PIPES_PER_AXIS, depth_pipe_length, NUM_PIPES_PER_AXIS, total_pipe_length);
     buffer[4095] = '\0';
     lv_label_set_text(rhombo_summary, buffer);
 }
@@ -139,30 +312,31 @@ void set_rhombo_height(float new_height) {
 
     rhombo_height = new_height;
 
-    new_height += 1.8f;
+    new_height += axis_min_seperation;
 
     lv_gltf_data_set_override_data2(ov_top, new_height / 2.f);
     lv_gltf_data_set_override_data2(ov_bottom, -new_height / 2.f);
     
     lv_gltf_view_recache_all_transforms(demo_gltfview, demo_gltfdata);
     //    for (uint32_t i = 0; i < NUM_QUAD_CORNERS_PER_HALF; i++) printf("Top Corner #%d World_Pos = %.2f, %.2f, %.2f\n", (i+1), ovro_top_quad_corners_pos[i]->data1, ovro_top_quad_corners_pos[i]->data2, ovro_top_quad_corners_pos[i]->data3);
-    float pipe_length = ovro_top_quad_corners_pos[0]->data2 * 2.f ;
-    rhombo_total_height = ovro_top_quad_corners_pos[2]->data2 * 2.f;
+    float pipe_length = ( ovro_top_quad_corners_pos[0]->data2 - ov_root_pos->data2) * 2.f ;
+    rhombo_total_height = ( ovro_top_quad_corners_pos[2]->data2 - ov_root_pos->data2) * 2.f;
+    //float pipe_mount_offset = ovro_top_quad_corners_pos[0]-> data1;
+
     pipe_length = pipe_length > 0.f ? pipe_length : -pipe_length;
+    pipe_length /= pipe_radius_scale;
     pipe_length = pipe_length - QUAD_PIPE_MARGIN > 0.f ? pipe_length - QUAD_PIPE_MARGIN : 0.f;
 
-    height_pipe_length = pipe_length;
+    height_pipe_length = pipe_length * pipe_radius_scale;
     //printf("height pipe length = %.2f for new_height of %.2f\n", pipe_length, new_height);
 
     const float base_scale = 1.f;//inv_tri_spacing_scale;
-    const float radius_scale =  1.f;//inv_tri_spacing_scale;
-    for (int i = 0; i < NUM_PIPES_PER_AXIS; i++) {
-        lv_gltf_data_set_override_data1(ov_vpipes[i], radius_scale);
+    for (uint32_t i = 0; i < NUM_PIPES_PER_AXIS; i++) {
+        lv_gltf_data_set_override_data1(ov_vpipes[i], base_scale);
+        //lv_gltf_data_set_override_data1(ov_vpipes[i], pipe_radius_scale);
         lv_gltf_data_set_override_data2(ov_vpipes[i], base_scale * pipe_length);
-        lv_gltf_data_set_override_data3(ov_vpipes[i], radius_scale);
-        //ov_vpipes[i]->data1 = radius_scale;
-        //ov_vpipes[i]->data2 = base_scale * pipe_length;
-        //ov_vpipes[i]->data3 = radius_scale;
+        lv_gltf_data_set_override_data3(ov_vpipes[i], base_scale);
+        //lv_gltf_data_set_override_data3(ov_vpipes[i], pipe_radius_scale);
     }
 
 }
@@ -170,7 +344,7 @@ void set_rhombo_height(float new_height) {
 void set_rhombo_width(float new_width) {
     new_width = new_width > 0.f ? new_width : 0.f;
     rhombo_width = new_width;
-    new_width += 1.8f;
+    new_width += axis_min_seperation;
 
     float rside = new_width / 2.f;
     lv_gltf_data_set_override_data1(ov_bottom_tri_corners_pos[1], rside);
@@ -188,24 +362,26 @@ void set_rhombo_width(float new_width) {
     float pipe_length = ovro_top_quad_corners_pos[1]->data1 * -2.f ;
     rhombo_total_width = ovro_top_quad_corners_pos[0]->data1 * -2.f;
     //ipe_length = pipe_length > 0.f ? pipe_length : -pipe_length;
+    pipe_length /= pipe_radius_scale;
     pipe_length = pipe_length - QUAD_PIPE_MARGIN > 0.f ? pipe_length - QUAD_PIPE_MARGIN : 0.f;
-    width_pipe_length = pipe_length;
+    width_pipe_length = pipe_length * pipe_radius_scale;
 
     //printf("width pipe length = %.2f for new_width of %.2f\n", pipe_length, new_width);
 
     const float base_scale = 1.f;//inv_tri_spacing_scale;
-    const float radius_scale =  1.f;//inv_tri_spacing_scale;
-    for (int i = 0; i < NUM_PIPES_PER_AXIS; i++) {
-        lv_gltf_data_set_override_data1(ov_wpipes[i], radius_scale);
+    for (uint32_t i = 0; i < NUM_PIPES_PER_AXIS; i++) {
+        lv_gltf_data_set_override_data1(ov_wpipes[i], base_scale);
+        //lv_gltf_data_set_override_data1(ov_wpipes[i], pipe_radius_scale);
         lv_gltf_data_set_override_data2(ov_wpipes[i], base_scale * pipe_length);
-        lv_gltf_data_set_override_data3(ov_wpipes[i], radius_scale);
+        lv_gltf_data_set_override_data3(ov_wpipes[i], base_scale);
+        //lv_gltf_data_set_override_data3(ov_wpipes[i], pipe_radius_scale);
     }
 }
 
 void set_rhombo_depth(float new_depth) {
     new_depth = new_depth > 0.f ? new_depth : 0.f;
     rhombo_depth = new_depth;
-    new_depth += 1.8f;
+    new_depth += axis_min_seperation;
 
     float fside = new_depth / 2.f;
     lv_gltf_data_set_override_data3(ov_bottom_tri_corners_pos[2], fside);
@@ -223,16 +399,18 @@ void set_rhombo_depth(float new_depth) {
     float pipe_length = ovro_top_quad_corners_pos[0]->data3 * -2.f;
     rhombo_total_depth = ovro_top_quad_corners_pos[1]->data3 * -2.f;
     //pipe_length = pipe_length > 0.f ? pipe_length : -pipe_length;
+    pipe_length /= pipe_radius_scale;
     pipe_length = pipe_length - QUAD_PIPE_MARGIN > 0.f ? pipe_length - QUAD_PIPE_MARGIN : 0.f;
     //printf("depth pipe length = %.2f for new_depth of %.2f\n", pipe_length, new_depth);
-    depth_pipe_length = pipe_length;
+    depth_pipe_length = pipe_length * pipe_radius_scale;
 
     const float base_scale = 1.f;//inv_tri_spacing_scale;
-    const float radius_scale =  1.f;//inv_tri_spacing_scale;
-    for (int i = 0; i < NUM_PIPES_PER_AXIS; i++) {
-        lv_gltf_data_set_override_data1(ov_dpipes[i], radius_scale);
+    for (uint32_t i = 0; i < NUM_PIPES_PER_AXIS; i++) {
+        lv_gltf_data_set_override_data1(ov_dpipes[i], base_scale);
+        //lv_gltf_data_set_override_data1(ov_dpipes[i], pipe_radius_scale);
         lv_gltf_data_set_override_data2(ov_dpipes[i], base_scale * pipe_length);
-        lv_gltf_data_set_override_data3(ov_dpipes[i], radius_scale);
+        lv_gltf_data_set_override_data3(ov_dpipes[i], base_scale);
+        //lv_gltf_data_set_override_data3(ov_dpipes[i], pipe_radius_scale);
     }
 
 }
@@ -247,8 +425,8 @@ void set_rhombo_tri_scale(float new_tri_scale) {
 
     rhombo_tri_scale = new_tri_scale;
 
-    tri_spacing_scale = new_tri_scale;
-    inv_tri_spacing_scale = 1.f / new_tri_scale;
+    tri_spacing_scale = new_tri_scale ;
+    inv_tri_spacing_scale = (1.f / new_tri_scale) * pipe_radius_scale;
     for (uint32_t i = 0; i < NUM_TRI_CORNERS_PER_HALF; i++) {
         lv_gltf_data_set_override_data1(ov_top_tri_corners_scale[i], tri_spacing_scale);
         lv_gltf_data_set_override_data2(ov_top_tri_corners_scale[i], tri_spacing_scale);
@@ -275,160 +453,201 @@ void set_rhombo_tri_scale(float new_tri_scale) {
         lv_gltf_data_set_override_data3(ov_bottom_quad_corners_scale[i], inv_tri_spacing_scale);
     }
 
-    tri_pipe_length = tri_spacing_scale * 0.5f - 0.25f;
-    for (uint32_t i = 0; i < NUM_TRI_PIPES_TOTAL; i++)
-        lv_gltf_data_set_override_data2(ov_all_tri_pipes[i], tri_pipe_length);
-
-    // After changing the tri-scale, the height/width/depth need updated as well
     set_rhombo_height(rhombo_height);
     set_rhombo_width(rhombo_width);
     set_rhombo_depth(rhombo_depth);
 
+    float xdiff = ovro_sample_tetroid_pipe_pos->data1 - ovro_top_quad_corners_pos[0]->data1;
+    float ydiff = ovro_sample_tetroid_pipe_pos->data2 - ovro_top_quad_corners_pos[0]->data2;
+    float zdiff = ovro_sample_tetroid_pipe_pos->data3 - ovro_top_quad_corners_pos[0]->data3;
+
+    xdiff *= xdiff;
+    ydiff *= ydiff;
+    zdiff *= zdiff;
+
+    float diffsum = xdiff + ydiff + zdiff;
+    float length = sqrt(diffsum);
+
+    float mount_offset = ovro_sample_tetroid_top_pipe_ref->data1 - ovro_sample_tetroid_top_pipe_mount_ref->data1 ;
+    //printf("mount_ref = %.2f/%.2f/%.2f\n", ovro_sample_tetroid_top_pipe_mount_ref->data1, ovro_sample_tetroid_top_pipe_mount_ref->data2, ovro_sample_tetroid_top_pipe_mount_ref->data3);
+    //printf("pipe_ref = %.2f/%.2f/%.2f\n", ovro_sample_tetroid_top_pipe_ref->data1, ovro_sample_tetroid_top_pipe_ref->data2, ovro_sample_tetroid_top_pipe_ref->data3);
+
+    length -= (mount_offset*0.5f);  // it's only 0.5 being subtracted here because the tetroid pipe offset is about half the quad fitting pipe offset, and the offset is only applied to one side, so it's half again.
+
+    //printf("Tetroid pipe length distance calc says adjusted length = %.3f  and mount length = %.3f\n", length, mount_offset);
+
+    //tri_pipe_length = (tri_spacing_scale * 0.5f - 0.25f) / pipe_radius_scale;
+    tri_pipe_length = length / pipe_radius_scale; // (tri_spacing_scale * 0.5f - 0.25f) / pipe_radius_scale;
+    for (uint32_t i = 0; i < NUM_TRI_PIPES_TOTAL; i++)
+        lv_gltf_data_set_override_data2(ov_all_tri_pipes[i], tri_pipe_length);
+    tri_pipe_length *= pipe_radius_scale;
+    // After changing the tri-scale, the height/width/depth need updated as well
+
+
     update_rhombo_summary();
+    
+}
+
+void set_rhombo_pipe_diameter(float new_diameter) {
+    rhombo_pipe_width = new_diameter;
+    float diam_per_unit_natural = 0.14f;
+    float scale_ratio = rhombo_pipe_width / diam_per_unit_natural;
+    printf("Setting fitting scale to %.2f%% to achieve diameter of %.2f\n", (scale_ratio * 100.f), (float)rhombo_pipe_width);
+    pipe_radius_scale = scale_ratio;
+    axis_min_seperation = BASE_AXIS_SEPERATION * pipe_radius_scale;
 }
 
 void demo_set_overrides_rhombo( void ) {
-    ov_top = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_root_rot = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root", OP_ROTATION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_root_pos = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
 
-    ov_top_tri_corners_pos[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_tri_corners_pos[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_tri_corners_pos[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_tri_corners_pos[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_pos[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_pos[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_pos[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_pos[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
 
-    ov_top_tri_corners_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_tri_corners_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_tri_corners_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_tri_corners_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_pos[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_pos[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_pos[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_pos[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_pos[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_pos[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_pos[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_pos[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04", OP_POSITION, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
 
-    ov_top_tri_corners_visible_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_tri_corners_visible_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_tri_corners_visible_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_tri_corners_visible_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_visible_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_visible_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_visible_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_tri_corners_visible_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
 
-    ov_top_quad_corners_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_quad_corners_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_quad_corners_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_quad_corners_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_quad_corners_scale[4] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_quad_corners_scale[5] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_quad_corners_scale[6] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_quad_corners_scale[7] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_quad_corners_scale[8] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_quad_corners_scale[9] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_quad_corners_scale[10] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_top_quad_corners_scale[11] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_visible_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_visible_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_visible_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_tri_corners_visible_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_visible_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_visible_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_visible_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_tri_corners_visible_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/tetroid_fitting", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
 
-    ov_bottom_quad_corners_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_quad_corners_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_quad_corners_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_quad_corners_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_quad_corners_scale[4] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_quad_corners_scale[5] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_quad_corners_scale[6] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_quad_corners_scale[7] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_quad_corners_scale[8] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_quad_corners_scale[9] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_quad_corners_scale[10] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_bottom_quad_corners_scale[11] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[4] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[5] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[6] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[7] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[8] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[9] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[10] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_top_quad_corners_scale[11] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+
+    ov_bottom_quad_corners_scale[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_quad_corners_scale[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_quad_corners_scale[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_quad_corners_scale[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_quad_corners_scale[4] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_quad_corners_scale[5] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_quad_corners_scale[6] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_quad_corners_scale[7] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_quad_corners_scale[8] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_quad_corners_scale[9] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/quad_fitting_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_quad_corners_scale[10] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/quad_fitting_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_bottom_quad_corners_scale[11] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/quad_fitting_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
 
 
     uint32_t tp = 0;
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
-    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
+    ovro_top_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
     tp = 0;
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
-    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/quad_fitting_01_front/pipe_target_01", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/quad_fitting_02_left/pipe_target_02", OP_WORLD_POSITION);
+    ovro_bottom_quad_corners_pos[tp++] = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/quad_fitting_03_top/pipe_target_03", OP_WORLD_POSITION);
+
+    ovro_sample_tetroid_pipe_pos = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/tetroid_fitting/tri_pipe_01_front", OP_WORLD_POSITION);
+    ovro_sample_tetroid_top_pipe_mount_ref = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/quad_fitting_03_top", OP_WORLD_POSITION);
+    ovro_sample_tetroid_top_pipe_ref = lv_gltf_data_readonly_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_WORLD_POSITION);
 
 
-    ov_vpipes[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_vpipes[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_vpipes[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_vpipes[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_vpipes[4] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_vpipes[5] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_vpipes[6] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_vpipes[7] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
 
-    ov_wpipes[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_wpipes[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_wpipes[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_wpipes[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_wpipes[4] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_wpipes[5] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_wpipes[6] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_wpipes[7] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_vpipes[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_vpipes[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_vpipes[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_vpipes[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_vpipes[4] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_vpipes[5] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_vpipes[6] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_vpipes[7] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/quad_fitting_02_left/quad_pipe_02_left", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
 
-    ov_dpipes[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_dpipes[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_dpipes[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_dpipes[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_dpipes[4] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_dpipes[5] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_dpipes[6] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
-    ov_dpipes[7] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_wpipes[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_wpipes[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_wpipes[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_wpipes[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_wpipes[4] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_wpipes[5] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_wpipes[6] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_wpipes[7] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+
+    ov_dpipes[0] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_dpipes[1] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_dpipes[2] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_dpipes[3] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_dpipes[4] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_dpipes[5] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_dpipes[6] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/quad_fitting_03_top/quad_pipe_03_top", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
+    ov_dpipes[7] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/quad_fitting_01_front/quad_pipe_01_front", OP_SCALE, OMC_CHAN1 | OMC_CHAN2 | OMC_CHAN3);
 
     uint32_t tripipe_chans = OMC_CHAN2;
     tp = 0;
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_01/root/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_02/root/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_03/root/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/top/corner_04/root/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_01/corner/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_02/corner/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_03/corner/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/top/corner_04/corner/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
 
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_01/root/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_02/root/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_03/root/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
-    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/bottom/corner_04/root/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_01/corner/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_02/corner/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_03/corner/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/tetroid_fitting/tri_pipe_01_front", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/tetroid_fitting/tri_pipe_02_left", OP_SCALE, tripipe_chans);
+    ov_all_tri_pipes[tp++] = lv_gltf_data_override_add_by_id(demo_gltfdata, "/root/bottom/corner_04/corner/rescale/tetroid_fitting/tri_pipe_03_top", OP_SCALE, tripipe_chans);
 
     /* Set safe defaults for the scale values */
+    set_rhombo_pipe_diameter(rhombo_pipe_width);
     set_rhombo_tri_scale(tri_spacing_scale);
 
     /* For grid and cursor support, call the original demo_set_overrides(), too. */
@@ -444,6 +663,8 @@ static void ov_triscale_slider_event_cb(lv_event_t * e)
     //rhombo_tri_scale = (normval * (MAX_VAL - MIN_VAL)) + MIN_VAL;
     set_rhombo_tri_scale((normval * (MAX_VAL - MIN_VAL)) + MIN_VAL);
     cancel_dragnav_frames = 1;
+    //add_all_required_pipes();
+    update_rhombo_summary();
 }
 
 static void ov_height_slider_event_cb(lv_event_t * e)
@@ -454,6 +675,8 @@ static void ov_height_slider_event_cb(lv_event_t * e)
     float normval = ((float)lv_slider_get_value(slider) / 10000.0f) ;
     set_rhombo_height((normval * (MAX_VAL - MIN_VAL)) + MIN_VAL);
     cancel_dragnav_frames = 1;
+    //add_all_required_pipes();
+    update_rhombo_summary();
 }
 
 static void ov_width_slider_event_cb(lv_event_t * e)
@@ -464,6 +687,8 @@ static void ov_width_slider_event_cb(lv_event_t * e)
     float normval = ((float)lv_slider_get_value(slider) / 10000.0f) ;
     set_rhombo_width((normval * (MAX_VAL - MIN_VAL)) + MIN_VAL);
     cancel_dragnav_frames = 1;
+    //add_all_required_pipes();
+    update_rhombo_summary();
 }
 
 static void ov_depth_slider_event_cb(lv_event_t * e)
@@ -474,9 +699,76 @@ static void ov_depth_slider_event_cb(lv_event_t * e)
     float normval = ((float)lv_slider_get_value(slider) / 10000.0f) ;
     set_rhombo_depth((normval * (MAX_VAL - MIN_VAL)) + MIN_VAL);
     cancel_dragnav_frames = 1;
+    //add_all_required_pipes();
+    update_rhombo_summary();
+
 }
 
-void make_rhombo_sliders(lv_obj_t * _cont) {
+static void ov_pipe_radius_slider_event_cb(lv_event_t * e)
+{
+    const float MAX_VAL = 0.0104166f;   // 1/8th inch
+    const float MIN_VAL = 0.33333f;     // 4 inches
+    lv_obj_t * slider = lv_event_get_target_obj(e);
+    float normval = ((float)lv_slider_get_value(slider) / 10000.0f) ;
+    //rhombo_tri_scale = (normval * (MAX_VAL - MIN_VAL)) + MIN_VAL;
+    set_rhombo_pipe_diameter((normval * (MAX_VAL - MIN_VAL)) + MIN_VAL);
+    set_rhombo_tri_scale(rhombo_tri_scale);
+    cancel_dragnav_frames = 1;
+    //add_all_required_pipes();
+    update_rhombo_summary();
+}
+
+static void pipe_type_dropdown_event_handler(lv_event_t * e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t * obj = lv_event_get_target_obj(e);
+    if(code == LV_EVENT_VALUE_CHANGED) {
+        char buf[256];
+        lv_dropdown_get_selected_str(obj, buf, sizeof(buf));
+        uint32_t sel_num = lv_dropdown_get_selected( obj );
+        rhombo_pipe_type = pipe_types[sel_num].pipe_type;
+        LV_LOG_USER("Option #%d: %s (%s)", (sel_num +1), buf, pipe_stock_type_labels[(uint32_t)rhombo_pipe_type]);
+        
+    }
+}
+
+#define PIPE_TYPE_COUNT (sizeof(pipe_types) / sizeof(pipe_types[0]))
+#define MAX_LABEL_LENGTH 256 // Adjust based on expected total length
+
+void make_pipe_type_dropdown(lv_obj_t * _cont)
+{
+
+    char multiline_temp[MAX_LABEL_LENGTH] = ""; // Buffer to hold the multiline string
+
+    for (uint32_t i = 0; i < PIPE_TYPE_COUNT; i++) {
+        // Concatenate each pipe label with a newline character
+        strcat(multiline_temp, pipe_types[i].pipe_label);
+        strcat(multiline_temp, "\n");
+    }
+
+    pipe_type_dropdown = lv_dropdown_create(_cont);
+    lv_dropdown_set_options(pipe_type_dropdown, multiline_temp);
+
+    lv_obj_align(pipe_type_dropdown, LV_ALIGN_TOP_RIGHT, -60, 40);
+    lv_obj_set_style_width(pipe_type_dropdown, 240, 0);
+    lv_obj_set_style_radius(pipe_type_dropdown, 0, 0);
+    lv_obj_t * list = lv_dropdown_get_list(pipe_type_dropdown); /* Get list */
+    lv_obj_set_style_radius(list, 0, 0);
+    lv_obj_add_event_cb(pipe_type_dropdown, pipe_type_dropdown_event_handler, LV_EVENT_ALL, NULL);
+}
+
+void make_rhombo_summary(lv_obj_t * _cont) {
+    rhombo_summary = lv_label_create(_cont);
+    lv_obj_align(rhombo_summary, LV_ALIGN_TOP_RIGHT, -70,85);
+    lv_label_set_text(rhombo_summary, "test123");
+    lv_obj_set_style_text_color(rhombo_summary, lv_color_hex(0x55FF55u), 0);\
+}
+
+void make_rhombo_example_ui(lv_obj_t * _cont) {
+//    make_pipe_type_dropdown(_cont);
+    make_rhombo_summary(_cont);
+    lv_obj_add_flag(rhombo_summary, LV_OBJ_FLAG_HIDDEN);
+    return;
     {
         lv_obj_t * slider = lv_slider_create(_cont);
         lv_obj_set_size(slider, 24, ((ui_get_window_height() - 90) / 2));
@@ -533,15 +825,22 @@ void make_rhombo_sliders(lv_obj_t * _cont) {
         //lv_obj_add_style(slider, &style_knob, LV_PART_KNOB);
         //lv_obj_add_style(slider, &style_bg_vert, LV_PART_MAIN);
     }
+    {
+        lv_obj_t * slider = lv_slider_create(_cont);
+        lv_obj_set_size(slider, 24, ((ui_get_window_height() - 90) / 2));
+        lv_obj_align(slider, LV_ALIGN_BOTTOM_LEFT, 245, -70);
+        lv_obj_add_event_cb(slider, ov_pipe_radius_slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+        lv_obj_add_flag(slider, LV_OBJ_FLAG_ADV_HITTEST);
+        lv_obj_set_style_anim(slider, 0, LV_ANIM_OFF);
+        lv_obj_set_style_anim_duration(slider, 0, 0);
+        lv_obj_set_style_bg_opa(slider, LV_OPA_40, LV_PART_INDICATOR);
+        lv_slider_set_range(slider, 0, 10000);
+        lv_slider_set_value(slider, 0.f, 0);
+        //lv_obj_add_style(slider, &style_knob, LV_PART_KNOB);
+        //lv_obj_add_style(slider, &style_bg_vert, LV_PART_MAIN);
+    }
 }
 
-void make_rhombo_summary(lv_obj_t * _cont) {
-    rhombo_summary = lv_label_create(_cont);
-    lv_obj_align(rhombo_summary, LV_ALIGN_TOP_RIGHT, -60,35);
-    lv_label_set_text(rhombo_summary, "test123");
-    lv_obj_set_style_text_color(rhombo_summary, lv_color_hex(0x55FF55u), 0);\
-    //update_rhombo_summary();
-}
 void reload(char * _filename, const char * _hdr_filename) {
 
     lv_obj_clear_flag(grp_loading, LV_OBJ_FLAG_HIDDEN);
@@ -606,7 +905,20 @@ void reload(char * _filename, const char * _hdr_filename) {
     demo_ui_set_tab(TAB_VIEW);
 }
 
+void my_animfunc(void *var , int32_t value) {
+    LV_UNUSED(var);
+    float normval = value / 10000.f;
+    float sinval = sin(normval * 6.283f);
+    //lv_gltf_view_set_bg_r( (lv_gltf_view_t *)var, value);
+    lv_gltf_data_set_override_data2(ov_root_pos, sinval * 0.5f + 1.0f);
+}
+
+static lv_anim_t   anim_template;
+//static lv_anim_t * running_anim;
+
 int main(int argc, char *argv[]) {
+    LV_UNUSED(pipe_type_labels);
+
     demo_gltfview = (lv_gltf_view_t * ) lv_malloc(get_viewer_datasize() );
     init_viewer_struct(demo_gltfview);
     char gltfFilePath[MAX_PATH_LENGTH] = "";
@@ -614,13 +926,16 @@ int main(int argc, char *argv[]) {
     int lastMouseX = 0, lastMouseY = 0;
     int frameCount = 0;
     bool softwareOnly = false;
-    bool startMaximized = false;
+    bool startMaximized = true;
     anim_rate = 1.0f;
     camera = 0;
     use_scenecam = true;
     requires_file_name = false;
-    
+
     if ( demo_cli_apply_commandline_options(demo_gltfview, gltfFilePath, hdrFilePath, &frameCount, &softwareOnly, &startMaximized, &stub_mode, &anim_rate, argc, argv) ) {
+
+        show_grid = false;
+        needs_system_gltfdata = false;
 
         if (softwareOnly) setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
@@ -629,7 +944,7 @@ int main(int argc, char *argv[]) {
 
         uint32_t max_window_width;
         uint32_t max_window_height;
-        int maxFrames = frameCount;
+        //int maxFrames = frameCount;
         if (!demo_os_integrate_get_maximum_window_framebuffer_size(&max_window_width, &max_window_height)) startMaximized = false;
 
         if (startMaximized) {
@@ -666,16 +981,37 @@ int main(int argc, char *argv[]) {
         lv_obj_clear_flag(gltfview_3dtex, LV_OBJ_FLAG_CLICKABLE  );
         lv_3dtexture_set_flip(gltfview_3dtex, false, false);
         demo_ui_make_overlayer();
-        make_rhombo_sliders(tab_pages[TAB_VIEW]);
-        make_rhombo_summary(tab_pages[TAB_VIEW]);
+        make_rhombo_example_ui(tab_pages[TAB_VIEW]);
         lv_refr_now(NULL);
 
         glfwShowWindow(glfw_window);
         if (startMaximized) glfwMaximizeWindow(glfw_window);
 
         reload(gltfFilePath, hdrFilePath);
+
+
         demo_set_overrides_rhombo();
         set_rhombo_tri_scale(rhombo_tri_scale);
+
+lv_anim_init(&anim_template);
+
+/* MANDATORY SETTINGS
+ *------------------*/
+
+/* Set the "animator" function */
+lv_anim_set_exec_cb(&anim_template, (lv_anim_exec_xcb_t) my_animfunc);
+
+/* Set target of the Animation */
+lv_anim_set_var(&anim_template, demo_gltfview);
+
+/* Length of the Animation [ms] */
+lv_anim_set_duration(&anim_template, 4200);
+
+/* Set start and end values. E.g. 0, 150 */
+lv_anim_set_values(&anim_template, 0, 10000);
+lv_anim_set_repeat_count(&anim_template, LV_ANIM_REPEAT_INFINITE );
+lv_anim_start(&anim_template);
+
 //        set_rhombo_height(rhombo_height);
 //        set_rhombo_width(rhombo_width);
 //        set_rhombo_depth(rhombo_depth);
@@ -697,11 +1033,11 @@ int main(int argc, char *argv[]) {
         long unsigned int frames_this_second = 0;
         long unsigned int frames_rendered_this_second = 0;
         unsigned long int usec_span = 0;
-        unsigned long int usec_per_frame_optimal = 0;
+        //unsigned long int usec_per_frame_optimal = 0;
         float seconds_this_second = 0.f;
         float total_seconds = 0.f;
         float goal_fps = 15.0f;
-        float goal_fps_span = 1.0f / goal_fps;
+        //float goal_fps_span = 1.0f / goal_fps;
         time_t last_poll = time(0);
         #ifdef EXPERIMENTAL_GROUNDCAST 
         float _groundpos[3] = {0.f, 0.f, 0.f};
@@ -753,7 +1089,7 @@ int main(int argc, char *argv[]) {
             total_seconds += sec_span;
 
             //float windowed_seconds = cycle_seconds != 0.f ? total_seconds - ((int)(total_seconds / cycle_seconds) * cycle_seconds) : 0.f;
-            uint32_t framenum = totalframenum % cycle_frames;
+            //uint32_t framenum = totalframenum % cycle_frames;
 
             demo_nav_gradual_to_goals( );
 
@@ -820,18 +1156,20 @@ int main(int argc, char *argv[]) {
                 }
                 frames_this_second = 0;
                 frames_rendered_this_second = 0;
-                usec_per_frame_optimal = (int)(1000000.f / ROLLING_FPS);
+                //usec_per_frame_optimal = (int)(1000000.f / ROLLING_FPS);
             }
 
             lv_3dtexture_id_t gltf_texture = 0;
-            uint32_t fps_lock_delay_msec = lv_gltf_view_get_fps_goal_delay(demo_gltfview, 60.0);
+            uint32_t fps_lock_delay_msec = lv_gltf_view_get_fps_goal_delay(demo_gltfview, 30.0);
             if (fps_lock_delay_msec > 0) {
                 //printf("Delaying for %d msec to hit fps goal of %.1f fps\n", fps_lock_delay_msec, 30.0f);
                 poll(fds, 0, fps_lock_delay_msec);
             }
-            //float preserved_scale = rhombo_tri_scale;
-            //set_rhombo_tri_scale((rhombo_tri_scale * 0.75f) + (sin(total_seconds) * (rhombo_tri_scale * 0.25f)));
-            //rhombo_tri_scale = preserved_scale;
+            float preserved_scale = rhombo_tri_scale;
+            lv_gltf_data_set_override_data1(ov_root_rot, 0.f);
+            set_rhombo_tri_scale((rhombo_tri_scale * 0.75f) + (sin(total_seconds) * (rhombo_tri_scale * 0.25f)));
+            lv_gltf_data_set_override_data1(ov_root_rot, spin_counter_degrees / 50.f);
+            rhombo_tri_scale = preserved_scale;
 
             /*  Only draw the grid (and other extras) if they are enabled 
                 and the view is not currently from a scene defined camera */
@@ -848,7 +1186,7 @@ int main(int argc, char *argv[]) {
                 lv_obj_invalidate(gltfview_3dtex);
                 lv_refr_now(NULL);
                 glfwPollEvents();
-                bool file_alpha = lv_gltf_view_get_bg_mode(demo_gltfview) != BG_ENVIRONMENT;
+                //bool file_alpha = lv_gltf_view_get_bg_mode(demo_gltfview) != BG_ENVIRONMENT;
             } else {
                 glfwPollEvents();
                 usleep(33000);

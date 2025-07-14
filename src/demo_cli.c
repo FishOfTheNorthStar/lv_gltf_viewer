@@ -79,7 +79,7 @@ bool demo_cli_apply_commandline_options(lv_gltf_view_t * viewer, char * gltfFile
     gltfFile[0] = '\0';
 
     // Check if at least one argument is provided
-    if(argc < 2) {
+    if(argc < (requires_file_name ? 2 : 1)) {
         cli_print_usage();
         passedParamChecks = false;
     }

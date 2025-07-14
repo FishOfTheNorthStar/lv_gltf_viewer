@@ -84,6 +84,7 @@ extern float goal_distance;
 extern float goal_focal_x;
 extern float goal_focal_y;
 extern float goal_focal_z;
+extern bool requires_file_name;
 extern bool frame_grab_ui;
 extern bool running;
 extern bool enable_intro_zoom;
